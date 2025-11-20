@@ -1,425 +1,420 @@
-import React, { useState, useMemo } from 'react';
-import { Users, Ticket, Percent, Calculator, Plus, Trash2, Music, BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
-
-const LiveHouseCalc = () => {
-  // --- State Definitions ---
-  const [ticketPrice, setTicketPrice] = useState(2500);
-  const [audienceCount, setAudienceCount] = useState(15);
-  // 'total': 全員に高いバック率を適用 (例: 21人以上以上なら全員60%)
-  // 'incremental': 超過した人数分のみ高いバック率を適用 (例: 20人までは50%、21人目から60%)
-  const [calculationMode, setCalculationMode] = useState('total'); 
-  
-  // Default conditions: 0 people = 50% back. (threshold 0 means 1人目から適用)
-  // 初期設定を基本の1つ（0人から50%バック）に限定しました。
-  const [conditions, setConditions] = useState([
-    { id: 1, threshold: 0, percentage: 50 },
-  ]);
-
-  // --- Logic ---
-
-  // 1. Sort conditions by threshold (ascending)
-  const sortedConditions = useMemo(() => {
-    return [...conditions].sort((a, b) => a.threshold - b.threshold);
-  }, [conditions]);
-
-  // 2. Determine the active condition (used only in 'total' mode)
-  const activeCondition = useMemo(() => {
-    // Sort descending to find the highest matching threshold
-    const descending = [...conditions].sort((a, b) => b.threshold - a.threshold);
-    return descending.find(c => audienceCount >= c.threshold) || conditions[0];
-  }, [audienceCount, conditions]);
-
-  // 3. Main Calculation Logic
-  const totalSales = ticketPrice * audienceCount;
-  let bandBackAmount = 0;
-
-  if (calculationMode === 'total') {
-    // --- モードA: 全体適用 (Total Application) ---
-    // 達成した最高条件のバック率を総売上全体に適用する
-    bandBackAmount = Math.floor(totalSales * (activeCondition.percentage / 100));
-  } else {
-    // --- モードB: 超過分適用 (Incremental Application) ---
-    let totalBandBack = 0;
-    
-    // 1人目からカウントするため、人数が0の場合はバック額も0
-    if (audienceCount > 0) {
-      // 範囲計算に使うため、現在の条件を複製し、人数順に並べ替える
-      const tiers = [...conditions].sort((a, b) => a.threshold - b.threshold);
-
-      for (let i = 0; i < tiers.length; i++) {
-        const tier = tiers[i];
-        
-        // このティアの開始人数 (0人の場合も1人目として扱う)
-        const tierStart = tier.threshold > 0 ? tier.threshold : 1; 
-        
-        // このティアが適用される上限人数
-        const nextTier = tiers[i + 1];
-        // 次のティアがあればその前日まで、なければ現在の来客数が上限
-        const tierEnd = nextTier 
-          ? nextTier.threshold - 1 
-          : audienceCount; 
-
-        // 実際にこのティアで計算する人数範囲 (1人目からaudienceCount人目までを区切る)
-        
-        // このティアの開始人数が実際の来客数を超えていたら、これ以降は計算不要
-        if (tierStart > audienceCount) break;
-
-        // 実際にこのティアのバック率が適用される人数
-        // tierStart人目からtierEnd人目までの人数
-        const peopleInTier = Math.min(audienceCount, tierEnd) - tierStart + 1;
-
-        if (peopleInTier > 0) {
-            const salesInThisTier = peopleInTier * ticketPrice;
-            const backInThisTier = Math.floor(salesInThisTier * (tier.percentage / 100));
-            totalBandBack += backInThisTier;
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ライブハウス精算シミュレーター</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ReactとReactDOMの読み込み -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <style>
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #6366f1;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #fff;
         }
-      }
-    }
-    bandBackAmount = totalBandBack;
-  }
-  
-  const venueKeepAmount = totalSales - bandBackAmount;
-  const finalPercentage = totalSales > 0 ? (bandBackAmount / totalSales) * 100 : 0;
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #6366f1;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans">
 
+    <div id="app" class="min-h-screen p-4 md:p-8"></div>
 
-  // --- Handlers ---
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const { useState, useMemo, useCallback } = React; 
+            const e = React.createElement;
+            const { createRoot } = ReactDOM;
 
-  const addCondition = () => {
-    const newId = Math.max(...conditions.map(c => c.id), 0) + 1;
-    // Suggest a threshold higher than current max
-    const maxThreshold = Math.max(...conditions.map(c => c.threshold), 0);
-    // 新しい条件は、既存の最大条件数+10人を閾値として追加
-    setConditions([...conditions, { id: newId, threshold: maxThreshold + 10, percentage: 50 }]);
-  };
+            // --- Icon Components (SVG定義) ---
+            // Lucideに依存せず、直接SVGを描画することでエラーを回避します
+            const createIcon = (pathD, className) => e('svg', {
+                xmlns: "http://www.w3.org/2000/svg",
+                width: "24", height: "24", viewBox: "0 0 24 24",
+                fill: "none", stroke: "currentColor", strokeWidth: "2",
+                strokeLinecap: "round", strokeLinejoin: "round",
+                className: className
+            }, e('path', { d: pathD }));
 
-  const removeCondition = (id) => {
-    // 最後の1つは削除できないように制限
-    if (conditions.length <= 1) return; 
-    setConditions(conditions.filter(c => c.id !== id));
-  };
+            const Icons = {
+                Music: ({className}) => createIcon("M9 18V5l12-2v13 M9 9l10-2 M9 18a3 3 0 1 0-3 3 3 3 0 0 0 3-3 M21 16a3 3 0 1 0-3 3 3 3 0 0 0 3-3", className),
+                Ticket: ({className}) => createIcon("M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z", className),
+                BarChart3: ({className}) => createIcon("M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3", className),
+                Percent: ({className}) => createIcon("M19 5L5 19 M6.5 6.5a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M13.5 13.5a2 2 0 1 0 4 0 2 2 0 1 0-4 0", className),
+                Plus: ({className}) => createIcon("M5 12h14 M12 5v14", className),
+                Trash2: ({className}) => createIcon("M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6", className),
+                Users: ({className}) => createIcon("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75", className),
+                Calculator: ({className}) => createIcon("M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8", className),
+                TrendingUp: ({className}) => createIcon("M22 7L13.5 15.5L8.5 10.5L2 17 M16 7h6v6", className),
+                TrendingDown: ({className}) => createIcon("M22 17L13.5 8.5L8.5 13.5L2 7 M16 17h6v-6", className)
+            };
 
-  const updateCondition = (id, field, value) => {
-    setConditions(conditions.map(c => 
-      c.id === id ? { ...c, [field]: Number(value) } : c
-    ));
-  };
-
-  const formatCurrency = (num) => {
-    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(num);
-  };
-  
-  // 集客数を1ずつ増減させるハンドラ
-  const handleAudienceChange = (delta) => {
-    setAudienceCount(prev => {
-      const newCount = prev + delta;
-      // 0から100の範囲に制限
-      return Math.max(0, Math.min(100, newCount)); 
-    });
-  };
-
-  // 現在適用されている（または計算に使われている）バック率を特定
-  const displayPercentage = calculationMode === 'total' 
-    ? activeCondition.percentage 
-    : Math.round(finalPercentage * 10) / 10; // 超過分適用時は実質バック率を表示
-
-  const displayThresholdInfo = calculationMode === 'total'
-    ? `(${activeCondition.threshold}人〜の条件)`
-    : '実質バック率';
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
-        
-        {/* Header */}
-        <header className="mb-8 flex items-center gap-3 border-b border-slate-700 pb-4">
-          <div className="p-3 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-500/20">
-            <Music className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Live House Payback Simulator</h1>
-            <p className="text-slate-400 text-sm">チケットバック・精算シミュレーター</p>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* LEFT COLUMN: Settings & Mode Selection */}
-          <div className="lg:col-span-5 space-y-6">
-            
-            {/* 1. Ticket Setting */}
-            <section className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
-              <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-indigo-300">
-                <Ticket className="w-5 h-5" />
-                基本設定
-              </h2>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">チケット料金 (円)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={ticketPrice}
-                    onChange={(e) => setTicketPrice(Math.max(0, Number(e.target.value)))}
-                    // JPYの表示スペースを確保するために右パディングを増やす
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg py-3 pl-4 pr-14 text-xl font-mono text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500">JPY</span>
-                </div>
-              </div>
-            </section>
-
-            {/* 2. Calculation Mode Setting */}
-            <section className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
-              <h2 className="text-lg font-semibold flex items-center gap-2 mb-4 text-indigo-300">
-                <BarChart3 className="w-5 h-5" />
-                バック計算方式の選択
-              </h2>
-              <div className="space-y-3">
+            // --- Main Component ---
+            const LiveHouseCalc = () => {
+                const [ticketPrice, setTicketPrice] = useState(2500);
+                const [audienceCount, setAudienceCount] = useState(15);
+                // 'total' or 'incremental'
+                const [calculationMode, setCalculationMode] = useState('total'); 
                 
-                {/* Mode: Total */}
-                <label className={`flex items-center p-3 rounded-lg cursor-pointer transition-all ${
-                  calculationMode === 'total' ? 'bg-indigo-700/30 border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-900 border border-slate-700 hover:border-indigo-500'
-                }`}>
-                  <input 
-                    type="radio" 
-                    name="calcMode" 
-                    value="total" 
-                    checked={calculationMode === 'total'}
-                    onChange={() => setCalculationMode('total')}
-                    className="form-radio h-4 w-4 text-indigo-500 focus:ring-indigo-500 bg-slate-800 border-slate-600 mr-3"
-                  />
-                  <div>
-                    <span className="font-semibold text-white flex items-center gap-2">全体適用 <TrendingUp className='w-4 h-4 text-indigo-400'/></span>
-                    <p className="text-xs text-slate-400 mt-1">
-                      達成した最高条件のバック率を、総売上全体に適用します。
-                    </p>
-                  </div>
-                </label>
+                const [conditions, setConditions] = useState([
+                    { id: 1, threshold: 0, percentage: 50 },
+                ]);
 
-                {/* Mode: Incremental */}
-                <label className={`flex items-center p-3 rounded-lg cursor-pointer transition-all ${
-                  calculationMode === 'incremental' ? 'bg-indigo-700/30 border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-900 border border-slate-700 hover:border-indigo-500'
-                }`}>
-                  <input 
-                    type="radio" 
-                    name="calcMode" 
-                    value="incremental" 
-                    checked={calculationMode === 'incremental'}
-                    onChange={() => setCalculationMode('incremental')}
-                    className="form-radio h-4 w-4 text-indigo-500 focus:ring-indigo-500 bg-slate-800 border-slate-600 mr-3"
-                  />
-                  <div>
-                    <span className="font-semibold text-white flex items-center gap-2">超過分適用 <TrendingDown className='w-4 h-4 text-indigo-400'/></span>
-                    <p className="text-xs text-slate-400 mt-1">
-                      基本バック率を維持し、条件を超えた人数分の売上に対してのみ高いバック率を適用します。
-                    </p>
-                  </div>
-                </label>
-              </div>
-            </section>
+                const sortedConditions = useMemo(() => {
+                    return [...conditions].sort((a, b) => a.threshold - b.threshold);
+                }, [conditions]);
 
+                const activeCondition = useMemo(() => {
+                    const descending = [...conditions].sort((a, b) => b.threshold - a.threshold);
+                    return descending.find(c => audienceCount >= c.threshold) || conditions[0];
+                }, [audienceCount, conditions]);
 
-            {/* 3. Conditions Setting */}
-            <section className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2 text-indigo-300">
-                  <Percent className="w-5 h-5" />
-                  バック条件設定
-                </h2>
-                <button 
-                  onClick={addCondition}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors"
-                >
-                  <Plus className="w-3 h-3" /> 条件追加
-                </button>
-              </div>
+                const totalSales = ticketPrice * audienceCount;
+                let bandBackAmount = 0;
 
-              <div className="space-y-3">
-                {sortedConditions.map((cond, index) => (
-                  <div 
-                    key={cond.id} 
-                    className={`flex items-center gap-2 p-3 rounded-lg border transition-all ${
-                      (calculationMode === 'total' && activeCondition.id === cond.id) 
-                        ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' 
-                        : 'bg-slate-900 border-slate-700'
-                    }`}
-                  >
-                    <div className="flex-1 grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">人数条件 (1人〜)</label>
-                        <div className="flex items-center">
-                          <input
-                            type="number"
-                            value={cond.threshold}
-                            onChange={(e) => updateCondition(cond.id, 'threshold', e.target.value)}
-                            min={0}
-                            className="w-full bg-transparent border-b border-slate-600 focus:border-indigo-500 outline-none text-center font-mono"
-                          />
-                          <span className="text-xs text-slate-400 ml-1">人〜</span>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-500 block mb-1">バック率</label>
-                        <div className="flex items-center">
-                          <input
-                            type="number"
-                            value={cond.percentage}
-                            onChange={(e) => updateCondition(cond.id, 'percentage', e.target.value)}
-                            min={0}
-                            max={100}
-                            className="w-full bg-transparent border-b border-slate-600 focus:border-indigo-500 outline-none text-center font-mono text-emerald-400 font-bold"
-                          />
-                          <span className="text-xs text-slate-400 ml-1">%</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      onClick={() => removeCondition(cond.id)}
-                      disabled={conditions.length === 1}
-                      className="p-2 text-slate-600 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-slate-500 mt-3">
-                ※ 人数条件は0を設定すると1人目からの基本バック率になります。条件は「条件追加」で増やすことができます。
-              </p>
-            </section>
+                if (calculationMode === 'total') {
+                    bandBackAmount = Math.floor(totalSales * (activeCondition.percentage / 100));
+                } else {
+                    let totalBandBack = 0;
+                    if (audienceCount > 0) {
+                        const tiers = [...conditions].sort((a, b) => a.threshold - b.threshold);
+                        for (let i = 0; i < tiers.length; i++) {
+                            const tier = tiers[i];
+                            const tierStart = tier.threshold > 0 ? tier.threshold : 1; 
+                            const nextTier = tiers[i + 1];
+                            const tierEnd = nextTier ? nextTier.threshold - 1 : audienceCount; 
 
-          </div>
+                            if (tierStart > audienceCount) break;
 
-          {/* RIGHT COLUMN: Simulation & Results */}
-          <div className="lg:col-span-7 space-y-6">
-            
-            {/* Simulation Control */}
-            <section className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
-              <h2 className="text-lg font-semibold flex items-center gap-2 mb-6 text-indigo-300">
-                <Users className="w-5 h-5" />
-                集客シミュレーション
-              </h2>
-
-              <div className="mb-8">
-                <div className="flex justify-between text-sm text-slate-400 mb-2">
-                  <span>実際の集客数</span>
-                  
-                  {/* 集客数表示と増減ボタン */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleAudienceChange(-1)}
-                      disabled={audienceCount <= 0}
-                      className="p-1 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-30 transition-colors"
-                      aria-label="集客数を1減らす"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                      </svg>
-                    </button>
-                    
-                    <span className="text-2xl font-bold text-white font-mono min-w-[30px] text-center">
-                      {audienceCount}
-                    </span>
-                    <span className="text-sm font-sans font-normal text-slate-400">人</span>
-
-                    <button
-                      onClick={() => handleAudienceChange(1)}
-                      disabled={audienceCount >= 100}
-                      className="p-1 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-30 transition-colors"
-                      aria-label="集客数を1増やす"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
+                            const peopleInTier = Math.min(audienceCount, tierEnd) - tierStart + 1;
+                            if (peopleInTier > 0) {
+                                const salesInThisTier = peopleInTier * ticketPrice;
+                                totalBandBack += Math.floor(salesInThisTier * (tier.percentage / 100));
+                            }
+                        }
+                    }
+                    bandBackAmount = totalBandBack;
+                }
                 
-                {/* スライダー */}
-                <input
-                  type="range"
-                  min="0"
-                  max="100" 
-                  value={audienceCount}
-                  onChange={(e) => setAudienceCount(Number(e.target.value))}
-                  className="w-full h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                />
-                <div className="flex justify-between text-xs text-slate-500 mt-2">
-                  <span>0人</span>
-                  <span>50人</span>
-                  <span>100人</span>
-                </div>
-              </div>
+                const venueKeepAmount = totalSales - bandBackAmount;
+                const finalPercentage = totalSales > 0 ? (bandBackAmount / totalSales) * 100 : 0;
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 text-center">
-                  <div className="text-xs text-slate-400 mb-1">総売上</div>
-                  <div className="text-xl font-bold text-white font-mono">{formatCurrency(totalSales)}</div>
-                </div>
-                <div className="bg-slate-900 p-4 rounded-lg border border-indigo-500/50 bg-indigo-900/10 text-center relative overflow-hidden md:col-span-2">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-                  <div className="text-xs text-indigo-300 mb-1">
-                    {calculationMode === 'total' ? '適用バック率' : '実質バック率 (変動)'}
-                  </div>
-                  <div className="text-2xl font-bold text-indigo-400 font-mono">
-                    {displayPercentage} %
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">
-                    {displayThresholdInfo}
-                  </div>
-                </div>
-              </div>
-            </section>
+                const addCondition = useCallback(() => {
+                    const newId = Math.max(...conditions.map(c => c.id), 0) + 1;
+                    const maxThreshold = Math.max(...conditions.map(c => c.threshold), 0);
+                    setConditions([...conditions, { id: newId, threshold: maxThreshold + 10, percentage: 50 }]);
+                }, [conditions]);
 
-            {/* Results Breakdown */}
-            <section className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700 shadow-lg">
-              <h2 className="text-lg font-semibold flex items-center gap-2 mb-6 text-emerald-400">
-                <Calculator className="w-5 h-5" />
-                精算結果
-              </h2>
+                const removeCondition = useCallback((id) => {
+                    if (conditions.length <= 1) return; 
+                    setConditions(conditions.filter(c => c.id !== id));
+                }, [conditions]);
 
-              <div className="flex flex-col md:flex-row items-stretch gap-6">
+                const updateCondition = useCallback((id, field, value) => {
+                    setConditions(conditions.map(c => 
+                        c.id === id ? { ...c, [field]: Number(value) } : c
+                    ));
+                }, [conditions]);
+
+                const formatCurrency = (num) => {
+                    return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(num);
+                };
                 
-                {/* Visual Graph */}
-                <div className="flex-1 flex flex-col justify-center">
-                   <div className="w-full h-16 bg-slate-700 rounded-full overflow-hidden flex">
-                     <div 
-                        className="h-full bg-emerald-500 flex items-center justify-center text-emerald-950 font-bold text-sm transition-all duration-500 ease-out"
-                        style={{ width: `${finalPercentage}%` }}
-                     >
-                       {finalPercentage > 15 && 'BAND'}
-                     </div>
-                     <div 
-                        className="h-full bg-slate-600 flex items-center justify-center text-slate-300 font-bold text-sm transition-all duration-500 ease-out"
-                        style={{ width: `${100 - finalPercentage}%` }}
-                     >
-                       {(100 - finalPercentage) > 15 && 'VENUE'}
-                     </div>
-                   </div>
-                   <div className="flex justify-between text-xs mt-2 px-2">
-                     <span className="text-emerald-400">バンド取り分 ({displayPercentage}%)</span>
-                     <span className="text-slate-400">ライブハウス取り分 ({(100 - displayPercentage).toFixed(1)}%)</span>
-                   </div>
-                </div>
+                const handleAudienceChange = useCallback((delta) => {
+                    setAudienceCount(prev => {
+                        const newCount = prev + delta;
+                        return Math.max(0, Math.min(100, newCount)); 
+                    });
+                }, []);
 
-                {/* Final Numbers */}
-                <div className="flex-1 space-y-4">
-                  <div className="bg-slate-950/50 p-4 rounded-lg border-l-4 border-emerald-500 flex justify-between items-center">
-                    <span className="text-slate-300 text-sm">バンドへの支払い</span>
-                    <span className="text-2xl font-bold text-emerald-400 font-mono">{formatCurrency(bandBackAmount)}</span>
-                  </div>
-                  <div className="bg-slate-950/50 p-4 rounded-lg border-l-4 border-slate-600 flex justify-between items-center">
-                    <span className="text-slate-400 text-sm">ライブハウス収益</span>
-                    <span className="text-xl font-bold text-slate-300 font-mono">{formatCurrency(venueKeepAmount)}</span>
-                  </div>
-                </div>
+                const displayPercentage = calculationMode === 'total' 
+                    ? activeCondition.percentage 
+                    : Math.round(finalPercentage * 10) / 10;
 
-              </div>
-            </section>
+                const displayThresholdInfo = calculationMode === 'total'
+                    ? `(${activeCondition.threshold}人〜の条件)`
+                    : '実質バック率';
 
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+                // --- Render ---
+                return e('div', { className: 'max-w-5xl mx-auto' }, 
+                    // Header
+                    e('header', { className: 'mb-8 flex items-center gap-3 border-b border-slate-700 pb-4' },
+                        e('div', { className: 'p-3 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-500/20' },
+                            e(Icons.Music, { className: 'w-6 h-6 text-white' })
+                        ),
+                        e('div', null,
+                            e('h1', { className: 'text-2xl font-bold text-white' }, 'Live House Payback Simulator'),
+                            e('p', { className: 'text-slate-400 text-sm' }, 'チケットバック・精算シミュレーター')
+                        )
+                    ),
 
-export default LiveHouseCalc;
+                    e('div', { className: 'grid grid-cols-1 lg:grid-cols-12 gap-8' },
+                        // LEFT COLUMN
+                        e('div', { className: 'lg:col-span-5 space-y-6' },
+                            
+                            // 1. Ticket Setting
+                            e('section', { className: 'bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm' },
+                                e('h2', { className: 'text-lg font-semibold flex items-center gap-2 mb-4 text-indigo-300' },
+                                    e(Icons.Ticket, { className: 'w-5 h-5' }),
+                                    '基本設定'
+                                ),
+                                e('div', null,
+                                    e('label', { className: 'block text-sm text-slate-400 mb-1' }, 'チケット料金 (円)'),
+                                    e('div', { className: 'relative' },
+                                        e('input', {
+                                            type: 'number',
+                                            value: ticketPrice,
+                                            onChange: (ev) => setTicketPrice(Math.max(0, Number(ev.target.value))),
+                                            className: 'w-full bg-slate-900 border border-slate-600 rounded-lg py-3 pl-4 pr-14 text-xl font-mono text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all'
+                                        }),
+                                        e('span', { className: 'absolute right-4 top-1/2 -translate-y-1/2 text-slate-500' }, 'JPY')
+                                    )
+                                )
+                            ),
+
+                            // 2. Calculation Mode Setting
+                            e('section', { className: 'bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm' },
+                                e('h2', { className: 'text-lg font-semibold flex items-center gap-2 mb-4 text-indigo-300' },
+                                    e(Icons.BarChart3, { className: 'w-5 h-5' }),
+                                    'バック計算方式の選択'
+                                ),
+                                e('div', { className: 'space-y-3' },
+                                    // Mode: Total
+                                    e('label', { className: `flex items-center p-3 rounded-lg cursor-pointer transition-all ${
+                                        calculationMode === 'total' ? 'bg-indigo-700/30 border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-900 border border-slate-700 hover:border-indigo-500'
+                                    }` },
+                                        e('input', {
+                                            type: 'radio', 
+                                            name: 'calcMode', 
+                                            value: 'total', 
+                                            checked: calculationMode === 'total',
+                                            onChange: () => setCalculationMode('total'),
+                                            className: 'form-radio h-4 w-4 text-indigo-500 focus:ring-indigo-500 bg-slate-800 border-slate-600 mr-3'
+                                        }),
+                                        e('div', null,
+                                            e('span', { className: 'font-semibold text-white flex items-center gap-2' }, '全体適用', e(Icons.TrendingUp, { className: 'w-4 h-4 text-indigo-400' })),
+                                            e('p', { className: 'text-xs text-slate-400 mt-1' }, '達成した最高条件のバック率を、総売上全体に適用します。')
+                                        )
+                                    ),
+                                    // Mode: Incremental
+                                    e('label', { className: `flex items-center p-3 rounded-lg cursor-pointer transition-all ${
+                                        calculationMode === 'incremental' ? 'bg-indigo-700/30 border-indigo-500 ring-2 ring-indigo-500' : 'bg-slate-900 border border-slate-700 hover:border-indigo-500'
+                                    }` },
+                                        e('input', {
+                                            type: 'radio', 
+                                            name: 'calcMode', 
+                                            value: 'incremental', 
+                                            checked: calculationMode === 'incremental',
+                                            onChange: () => setCalculationMode('incremental'),
+                                            className: 'form-radio h-4 w-4 text-indigo-500 focus:ring-indigo-500 bg-slate-800 border-slate-600 mr-3'
+                                        }),
+                                        e('div', null,
+                                            e('span', { className: 'font-semibold text-white flex items-center gap-2' }, '超過分適用', e(Icons.TrendingDown, { className: 'w-4 h-4 text-indigo-400' })),
+                                            e('p', { className: 'text-xs text-slate-400 mt-1' }, '基本バック率を維持し、条件を超えた人数分の売上に対してのみ高いバック率を適用します。')
+                                        )
+                                    )
+                                )
+                            ),
+
+                            // 3. Conditions Setting
+                            e('section', { className: 'bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm' },
+                                e('div', { className: 'flex justify-between items-center mb-4' },
+                                    e('h2', { className: 'text-lg font-semibold flex items-center gap-2 text-indigo-300' },
+                                        e(Icons.Percent, { className: 'w-5 h-5' }),
+                                        'バック条件設定'
+                                    ),
+                                    e('button', { 
+                                        onClick: addCondition,
+                                        className: 'text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors'
+                                    },
+                                        e(Icons.Plus, { className: 'w-3 h-3' }),
+                                        '条件追加'
+                                    )
+                                ),
+                                e('div', { className: 'space-y-3' },
+                                    sortedConditions.map((cond) => (
+                                        e('div', { 
+                                            key: cond.id, 
+                                            className: `flex items-center gap-2 p-3 rounded-lg border transition-all ${
+                                                (calculationMode === 'total' && activeCondition.id === cond.id) 
+                                                    ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' 
+                                                    : 'bg-slate-900 border-slate-700'
+                                            }`
+                                        },
+                                            e('div', { className: 'flex-1 grid grid-cols-2 gap-2' },
+                                                e('div', null,
+                                                    e('label', { className: 'text-xs text-slate-500 block mb-1' }, '人数条件 (1人〜)'),
+                                                    e('div', { className: 'flex items-center' },
+                                                        e('input', {
+                                                            type: 'number',
+                                                            value: cond.threshold,
+                                                            onChange: (ev) => updateCondition(cond.id, 'threshold', ev.target.value),
+                                                            min: 0,
+                                                            className: 'w-full bg-transparent border-b border-slate-600 focus:border-indigo-500 outline-none text-center font-mono'
+                                                        }),
+                                                        e('span', { className: 'text-xs text-slate-400 ml-1' }, '人〜')
+                                                    )
+                                                ),
+                                                e('div', null,
+                                                    e('label', { className: 'text-xs text-slate-500 block mb-1' }, 'バック率'),
+                                                    e('div', { className: 'flex items-center' },
+                                                        e('input', {
+                                                            type: 'number',
+                                                            value: cond.percentage,
+                                                            onChange: (ev) => updateCondition(cond.id, 'percentage', ev.target.value),
+                                                            min: 0,
+                                                            max: 100,
+                                                            className: 'w-full bg-transparent border-b border-slate-600 focus:border-indigo-500 outline-none text-center font-mono text-emerald-400 font-bold'
+                                                        }),
+                                                        e('span', { className: 'text-xs text-slate-400 ml-1' }, '%')
+                                                    )
+                                                )
+                                            ),
+                                            e('button', { 
+                                                onClick: () => removeCondition(cond.id),
+                                                disabled: conditions.length === 1,
+                                                className: 'p-2 text-slate-600 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed'
+                                            },
+                                                e(Icons.Trash2, { className: 'w-4 h-4' })
+                                            )
+                                        )
+                                    ))
+                                ),
+                                e('p', { className: 'text-xs text-slate-500 mt-3' }, '※ 人数条件は0を設定すると1人目からの基本バック率になります。条件は「条件追加」で増やすことができます。')
+                            )
+                        ),
+
+                        // RIGHT COLUMN
+                        e('div', { className: 'lg:col-span-7 space-y-6' },
+                            // Simulation Control
+                            e('section', { className: 'bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm' },
+                                e('h2', { className: 'text-lg font-semibold flex items-center gap-2 mb-6 text-indigo-300' },
+                                    e(Icons.Users, { className: 'w-5 h-5' }),
+                                    '集客シミュレーション'
+                                ),
+                                e('div', { className: 'mb-8' },
+                                    e('div', { className: 'flex justify-between text-sm text-slate-400 mb-2' },
+                                        e('span', null, '実際の集客数'),
+                                        e('div', { className: 'flex items-center gap-2' },
+                                            e('button', {
+                                                onClick: () => handleAudienceChange(-1),
+                                                disabled: audienceCount <= 0,
+                                                className: 'p-1 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-30 transition-colors',
+                                                'aria-label': '集客数を1減らす'
+                                            },
+                                                e('svg', { className: 'w-5 h-5', fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor' },
+                                                    e('path', { strokeLinecap: 'round', strokeLinejoin: 'round', strokeWidth: 2, d: 'M20 12H4' })
+                                                )
+                                            ),
+                                            e('span', { className: 'text-2xl font-bold text-white font-mono min-w-[30px] text-center' },
+                                                audienceCount
+                                            ),
+                                            e('span', { className: 'text-sm font-sans font-normal text-slate-400' }, '人'),
+                                            e('button', {
+                                                onClick: () => handleAudienceChange(1),
+                                                disabled: audienceCount >= 100,
+                                                className: 'p-1 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-30 transition-colors',
+                                                'aria-label': '集客数を1増やす'
+                                            },
+                                                e(Icons.Plus, { className: 'w-5 h-5' })
+                                            )
+                                        )
+                                    ),
+                                    e('input', {
+                                        type: 'range',
+                                        min: '0',
+                                        max: '100', 
+                                        value: audienceCount,
+                                        onChange: (ev) => setAudienceCount(Number(ev.target.value)),
+                                        className: 'w-full h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500'
+                                    }),
+                                    e('div', { className: 'flex justify-between text-xs text-slate-500 mt-2' },
+                                        e('span', null, '0人'),
+                                        e('span', null, '50人'),
+                                        e('span', null, '100人')
+                                    )
+                                ),
+                                e('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-4' },
+                                    e('div', { className: 'bg-slate-900 p-4 rounded-lg border border-slate-700 text-center' },
+                                        e('div', { className: 'text-xs text-slate-400 mb-1' }, '総売上'),
+                                        e('div', { className: 'text-xl font-bold text-white font-mono' }, formatCurrency(totalSales))
+                                    ),
+                                    e('div', { className: 'bg-slate-900 p-4 rounded-lg border border-indigo-500/50 bg-indigo-900/10 text-center relative overflow-hidden md:col-span-2' },
+                                        e('div', { className: 'absolute top-0 left-0 w-1 h-full bg-indigo-500' }),
+                                        e('div', { className: 'text-xs text-indigo-300 mb-1' },
+                                            calculationMode === 'total' ? '適用バック率' : '実質バック率 (変動)'
+                                        ),
+                                        e('div', { className: 'text-2xl font-bold text-indigo-400 font-mono' },
+                                            `${displayPercentage} %`
+                                        ),
+                                        e('div', { className: 'text-[10px] text-slate-500 mt-1' },
+                                            displayThresholdInfo
+                                        )
+                                    )
+                                )
+                            ),
+
+                            // Results Breakdown
+                            e('section', { className: 'bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700 shadow-lg' },
+                                e('h2', { className: 'text-lg font-semibold flex items-center gap-2 mb-6 text-emerald-400' },
+                                    e(Icons.Calculator, { className: 'w-5 h-5' }),
+                                    '精算結果'
+                                ),
+                                e('div', { className: 'flex flex-col md:flex-row items-stretch gap-6' },
+                                    e('div', { className: 'flex-1 flex flex-col justify-center' },
+                                        e('div', { className: 'w-full h-16 bg-slate-700 rounded-full overflow-hidden flex' },
+                                            e('div', { 
+                                                className: 'h-full bg-emerald-500 flex items-center justify-center text-emerald-950 font-bold text-sm transition-all duration-500 ease-out',
+                                                style: { width: `${finalPercentage}%` }
+                                            },
+                                                finalPercentage > 15 && 'BAND'
+                                            ),
+                                            e('div', { 
+                                                className: 'h-full bg-slate-600 flex items-center justify-center text-slate-300 font-bold text-sm transition-all duration-500 ease-out',
+                                                style: { width: `${100 - finalPercentage}%` }
+                                            },
+                                                (100 - finalPercentage) > 15 && 'VENUE'
+                                            )
+                                        ),
+                                        e('div', { className: 'flex justify-between text-xs mt-2 px-2' },
+                                            e('span', { className: 'text-emerald-400' }, `バンド取り分 (${displayPercentage}%)`),
+                                            e('span', { className: 'text-slate-400' }, `ライブハウス取り分 (${(100 - displayPercentage).toFixed(1)}%)`)
+                                        )
+                                    ),
+                                    e('div', { className: 'flex-1 space-y-4' },
+                                        e('div', { className: 'bg-slate-950/50 p-4 rounded-lg border-l-4 border-emerald-500 flex justify-between items-center' },
+                                            e('span', { className: 'text-slate-300 text-sm' }, 'バンドへの支払い'),
+                                            e('span', { className: 'text-2xl font-bold text-emerald-400 font-mono' }, formatCurrency(bandBackAmount))
+                                        ),
+                                        e('div', { className: 'bg-slate-950/50 p-4 rounded-lg border-l-4 border-slate-600 flex justify-between items-center' },
+                                            e('span', { className: 'text-slate-400 text-sm' }, 'ライブハウス収益'),
+                                            e('span', { className: 'text-xl font-bold text-slate-300 font-mono' }, formatCurrency(venueKeepAmount))
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                );
+            };
+
+            const app = document.getElementById('app');
+            const root = createRoot(app);
+            root.render(React.createElement(LiveHouseCalc));
+        });
+    </script>
+</body>
+</html>
